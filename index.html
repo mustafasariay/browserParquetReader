@@ -139,7 +139,7 @@
     <h1>📊 Parquet Reader - JSON Based</h1>
     
     <div class="file-input">
-        <input type="file" id="file" accept=".parquet" />
+        <input type="file" id="file" accept=".parquet" />      
     </div>
     
     <div id="controls" class="controls" style="display:none;">
@@ -163,7 +163,10 @@
     <div id="output"></div>
     <div id="pagination-bottom" class="pagination" style="display:none;"></div>
 
-    <script type="module">
+    <script type="module">        
+        document.getElementById("file").addEventListener("click", function() {
+            this.value = '';
+        });
         let allData = [];
         let filteredData = [];
         let currentPage = 1;
