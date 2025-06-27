@@ -1,23 +1,34 @@
-<!DOCTYPE html>
+<!DOCTYPE html lang="tr">
 <html>
 <head>
-    <title>Parquet Reader</title>
+    <meta charset="UTF-8">
+    <title>Parquet Reader - JSON Based</title>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        
         table {
             border-collapse: collapse;
             width: 100%;
             margin-top: 20px;
         }
+        
         th, td {
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
             vertical-align: top;
         }
+        
         th {
             background-color: #f2f2f2;
             font-weight: bold;
+            position: sticky;
+            top: 0;
         }
+        
         .xml-content {
             max-width: 300px;
             max-height: 200px;
@@ -29,105 +40,519 @@
             padding: 5px;
             border: 1px solid #ccc;
         }
+        
+        .loading {
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .controls input[type="text"], .controls input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .controls label {
+            font-weight: bold;
+        }
+        
+        .pagination {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .pagination button {
+            padding: 8px 12px;
+            margin: 0 2px;
+            border: 1px solid #ddd;
+            background-color: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background-color: #f0f0f0;
+        }
+        
+        .pagination button:disabled {
+            background-color: #e9ecef;
+            cursor: not-allowed;
+        }
+        
+        .page-jump {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin: 0 10px;
+            padding: 5px 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .page-jump input {
+            width: 60px;
+            padding: 4px 6px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            text-align: center;
+        }
+        
+        .page-jump button {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        
+        .info-bar {
+            background-color: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .file-input {
+            margin-bottom: 20px;
+        }
+        
+        .file-input input[type="file"] {
+            padding: 10px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            width: 100%;
+        }
     </style>
-    <script type="module">
-        document.addEventListener('DOMContentLoaded', async () => {
-            const duckdb = await import("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm");
-            const { selectBundle, AsyncDuckDB, ConsoleLogger } = duckdb;
-
-            const MANUAL_BUNDLES = {
-                mvp: {
-                    mainModule: "duckdb-mvp.wasm",
-                    mainWorker: "duckdb-browser-mvp.worker.js"
-                },
-                eh: {
-                    mainModule: "duckdb-eh.wasm",
-                    mainWorker: "duckdb-browser-eh.worker.js"
-                }
-            };
-            const bundle = await selectBundle(MANUAL_BUNDLES);
-            const logger = new ConsoleLogger();
-            
-            let worker;
-            try {
-                worker = new Worker(bundle.mainWorker);
-            } catch (error) {
-                console.warn('Failed to load worker, falling back to MVP bundle:', error);
-                const mvpBundle = MANUAL_BUNDLES.mvp;
-                worker = new Worker(mvpBundle.mainWorker);
-            }
-            
-            const db = new AsyncDuckDB(logger, worker);
-            await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-
-            const conn = await db.connect();
-
-            function isXMLContent(value) {
-                if (typeof value !== 'string') return false;
-                return value.trim().startsWith('<') && value.trim().endsWith('>');
-            }
-            
-            function createTable(data) {
-                if (data.length === 0) return '<p>Veri bulunamadı</p>';
-                
-                const columns = Object.keys(data[0]);
-                
-                let html = '<table>';
-                html += '<thead><tr>';
-                columns.forEach(col => {
-                    html += `<th>${col}</th>`;
-                });
-                html += '</tr></thead>';
-                
-                html += '<tbody>';
-                data.forEach(row => {
-                    html += '<tr>';
-                    columns.forEach(col => {
-                        let value = row[col];
-                        if (typeof value === 'bigint') {
-                            value = value.toString();
-                        }
-                        
-                        if (isXMLContent(value)) {
-                            html += `<td><pre class="xml-content">${value.replace(/[\u00A0-\u9999<>\&]/g, i => '&#'+i.charCodeAt(0)+';')}</pre></td>`;
-                        } else {
-                            html += `<td>${value !== null ? value : ''}</td>`;
-                        }
-                    });
-                    html += '</tr>';
-                });
-                html += '</tbody>';
-                html += '</table>';
-                
-                return html;
-            }
-
-            document.getElementById("file").addEventListener("change", async (event) => {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                const limitValue = document.getElementById("limit").value || 100;
-                const buffer = await file.arrayBuffer();
-
-                await db.registerFileBuffer("myfile.parquet", new Uint8Array(buffer));
-                const result = await conn.query(`SELECT * FROM 'myfile.parquet' LIMIT ${limitValue}`);
-
-                const container = document.getElementById("output");               
-                const data = result.toArray();
-                
-                
-                container.innerHTML = createTable(data);
-            });
-        });
-    </script>
 </head>
 <body>
-    <h1>Parquet Reader</h1>
-    <div>
+    <h1>📊 Parquet Reader - JSON Based</h1>
+    
+    <div class="file-input">
         <input type="file" id="file" accept=".parquet" />
-        <label for="limit">Limit:</label>
-        <input type="number" id="limit" value="10" min="1" max="10000" />
     </div>
-    <div id="output" style="margin-top:20px;"></div>
+    
+    <div id="controls" class="controls" style="display:none;">
+        <label for="search">🔍 Arama:</label>
+        <input type="text" id="search" placeholder="Tabloda ara..." />
+        
+        <label for="limit">📄 Sayfa Başına:</label>
+        <select id="limit">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="500">500</option>
+        </select>
+        
+        <button id="reset-search">🔄 Sıfırla</button>
+    </div>
+    
+    <div id="info-bar" class="info-bar" style="display:none;"></div>
+    <div id="pagination-top" class="pagination" style="display:none;"></div>
+    <div id="output"></div>
+    <div id="pagination-bottom" class="pagination" style="display:none;"></div>
+
+    <script type="module">
+        let allData = [];
+        let filteredData = [];
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let isFileLoaded = false;
+        let searchTerm = '';
+        
+        // DuckDB setup
+        const duckdb = await import("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm");
+        const { selectBundle, AsyncDuckDB, ConsoleLogger } = duckdb;
+
+        const MANUAL_BUNDLES = {
+            mvp: {
+                mainModule: "duckdb-mvp.wasm",
+                mainWorker: "duckdb-browser-mvp.worker.js"
+            },
+            eh: {
+                mainModule: "duckdb-eh.wasm",
+                mainWorker: "duckdb-browser-eh.worker.js"
+            }
+        };
+        
+        const bundle = await selectBundle(MANUAL_BUNDLES);
+        const logger = new ConsoleLogger();
+        
+        let worker;
+        try {
+            worker = new Worker(bundle.mainWorker);
+        } catch (error) {
+            console.warn('Failed to load worker, falling back to MVP bundle:', error);
+            const mvpBundle = MANUAL_BUNDLES.mvp;
+            worker = new Worker(mvpBundle.mainWorker);
+        }
+        
+        const db = new AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+        const conn = await db.connect();
+
+        // Utility functions
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function isXMLContent(value) {
+            if (typeof value !== 'string') return false;
+            const trimmed = value.trim();
+            return trimmed.startsWith('<') && trimmed.endsWith('>') && trimmed.length > 10;
+        }
+
+        function formatValue(value) {
+            if (value === null || value === undefined) return '';
+            if (typeof value === 'bigint') return value.toString();
+            if (typeof value === 'object') return JSON.stringify(value);
+            return String(value);
+        }
+
+        // Search function
+        function filterData() {
+            if (!searchTerm.trim()) {
+                filteredData = [...allData];
+                return;
+            }
+
+            const searchLower = searchTerm.toLowerCase().trim();
+            filteredData = allData.filter(row => {
+                return Object.values(row).some(value => {
+                    const stringValue = formatValue(value).toLowerCase();
+                    return stringValue.includes(searchLower);
+                });
+            });
+        }
+
+        // Pagination functions
+        function getPaginatedData() {
+            const start = (currentPage - 1) * itemsPerPage;
+            const end = start + itemsPerPage;
+            return filteredData.slice(start, end);
+        }
+
+        function getTotalPages() {
+            return Math.ceil(filteredData.length / itemsPerPage);
+        }
+
+        function goToPage(page) {
+            const totalPages = getTotalPages();
+            if (page < 1 || page > totalPages) return;
+            
+            currentPage = page;
+            renderTable();
+            renderPagination();
+        }
+
+        // Render functions
+        function renderTable() {
+            const container = document.getElementById("output");
+            const paginatedData = getPaginatedData();
+            
+            if (paginatedData.length === 0) {
+                container.innerHTML = searchTerm ? 
+                    '<p style="text-align: center; padding: 40px; color: #666;">🔍 Arama sonucu bulunamadı</p>' : 
+                    '<p style="text-align: center; padding: 40px; color: #666;">📄 Veri yok</p>';
+                return;
+            }
+            
+            const columns = Object.keys(paginatedData[0]);
+            
+            let html = '<table>';
+            
+            // Header
+            html += '<thead><tr>';
+            columns.forEach(col => {
+                html += `<th>${escapeHtml(col)}</th>`;
+            });
+            html += '</tr></thead>';
+            
+            // Body
+            html += '<tbody>';
+            paginatedData.forEach((row, index) => {
+                html += '<tr>';
+                columns.forEach(col => {
+                    const value = row[col];
+                    const formattedValue = formatValue(value);
+                    
+                    if (isXMLContent(formattedValue)) {
+                        html += `<td><div class="xml-content">${escapeHtml(formattedValue)}</div></td>`;
+                    } else if (formattedValue.length > 100) {
+                        // Long text with show more/less
+                        const shortText = formattedValue.substring(0, 100);
+                        html += `<td>
+                            <div class="long-text">
+                                <span class="short">${escapeHtml(shortText)}...</span>
+                                <span class="full" style="display: none;">${escapeHtml(formattedValue)}</span>
+                                <button onclick="toggleText(this)" class="toggle-btn">Daha fazla</button>
+                            </div>
+                        </td>`;
+                    } else {
+                        html += `<td>${escapeHtml(formattedValue)}</td>`;
+                    }
+                });
+                html += '</tr>';
+            });
+            html += '</tbody>';
+            html += '</table>';
+            
+            container.innerHTML = html;
+        }
+
+        function renderPagination() {
+            const totalPages = getTotalPages();
+            const totalItems = filteredData.length;
+            
+            if (totalPages <= 1) {
+                document.getElementById("pagination-top").style.display = "none";
+                document.getElementById("pagination-bottom").style.display = "none";
+                return;
+            }
+            
+            let html = '<div>';
+            
+            // Info
+            const start = (currentPage - 1) * itemsPerPage + 1;
+            const end = Math.min(currentPage * itemsPerPage, totalItems);
+            html += `<span style="margin-right: 20px;">
+                ${start}-${end} / ${totalItems} kayıt (Sayfa ${currentPage}/${totalPages})
+            </span>`;
+            
+            // First page
+            if (currentPage > 1) {
+                html += `<button onclick="goToPage(1)">⏮️ İlk</button>`;
+                html += `<button onclick="goToPage(${currentPage - 1})">⬅️ Önceki</button>`;
+            }
+            
+            // Page numbers (show fewer if too many pages)
+            if (totalPages <= 10) {
+                // Show all pages if 10 or fewer
+                for (let i = 1; i <= totalPages; i++) {
+                    html += `<button onclick="goToPage(${i})" ${i === currentPage ? 'disabled' : ''}>${i}</button>`;
+                }
+            } else {
+                // Show smart pagination for many pages
+                const startPage = Math.max(1, currentPage - 2);
+                const endPage = Math.min(totalPages, currentPage + 2);
+                
+                // Show first page if not in range
+                if (startPage > 1) {
+                    html += `<button onclick="goToPage(1)">1</button>`;
+                    if (startPage > 2) {
+                        html += `<span style="margin: 0 5px;">...</span>`;
+                    }
+                }
+                
+                // Show current range
+                for (let i = startPage; i <= endPage; i++) {
+                    html += `<button onclick="goToPage(${i})" ${i === currentPage ? 'disabled' : ''}>${i}</button>`;
+                }
+                
+                // Show last page if not in range
+                if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) {
+                        html += `<span style="margin: 0 5px;">...</span>`;
+                    }
+                    html += `<button onclick="goToPage(${totalPages})">${totalPages}</button>`;
+                }
+            }
+            
+            // Page jump input
+            html += `<div class="page-jump">
+                <span>📄</span>
+                <input type="number" 
+                       id="page-input-${Math.random().toString(36).substr(2, 9)}" 
+                       placeholder="${currentPage}" 
+                       min="1" 
+                       max="${totalPages}" 
+                       onkeypress="handlePageJump(event, ${totalPages})"
+                       style="width: ${totalPages.toString().length * 12 + 30}px;">
+                <button onclick="jumpToPage(${totalPages})">Git</button>
+            </div>`;
+            
+            // Next/Last page
+            if (currentPage < totalPages) {
+                html += `<button onclick="goToPage(${currentPage + 1})">➡️ Sonraki</button>`;
+                html += `<button onclick="goToPage(${totalPages})">⏭️ Son</button>`;
+            }
+            
+            html += '</div>';
+            
+            document.getElementById("pagination-top").innerHTML = html;
+            document.getElementById("pagination-bottom").innerHTML = html;
+            document.getElementById("pagination-top").style.display = "block";
+            document.getElementById("pagination-bottom").style.display = "block";
+        }
+
+        function updateInfoBar() {
+            const infoBar = document.getElementById("info-bar");
+            const totalRecords = allData.length;
+            const filteredRecords = filteredData.length;
+            
+            let info = `📊 Toplam ${totalRecords} kayıt`;
+            if (searchTerm.trim()) {
+                info += ` | 🔍 ${filteredRecords} kayıt bulundu`;
+            }
+            
+            infoBar.innerHTML = info;
+            infoBar.style.display = "block";
+        }
+
+        function renderAll() {
+            filterData();
+            currentPage = 1; // Reset to first page
+            updateInfoBar();
+            renderTable();
+            renderPagination();
+        }
+
+        // Global functions for buttons
+        window.goToPage = goToPage;
+        
+        window.jumpToPage = function(maxPage) {
+            const input = event.target.previousElementSibling;
+            const pageNumber = parseInt(input.value);
+            
+            if (pageNumber && pageNumber >= 1 && pageNumber <= maxPage) {
+                goToPage(pageNumber);
+                input.value = ''; // Clear input after jump
+            } else {
+                alert(`Lütfen 1-${maxPage} arasında bir sayfa numarası girin.`);
+                input.focus();
+            }
+        };
+        
+        window.handlePageJump = function(event, maxPage) {
+            if (event.key === 'Enter') {
+                const pageNumber = parseInt(event.target.value);
+                
+                if (pageNumber && pageNumber >= 1 && pageNumber <= maxPage) {
+                    goToPage(pageNumber);
+                    event.target.value = ''; // Clear input after jump
+                } else {
+                    alert(`Lütfen 1-${maxPage} arasında bir sayfa numarası girin.`);
+                    event.target.focus();
+                }
+            }
+        };
+        
+        window.toggleText = function(button) {
+            const container = button.parentElement;
+            const shortSpan = container.querySelector('.short');
+            const fullSpan = container.querySelector('.full');
+            
+            if (fullSpan.style.display === 'none') {
+                shortSpan.style.display = 'none';
+                fullSpan.style.display = 'inline';
+                button.textContent = 'Daha az';
+            } else {
+                shortSpan.style.display = 'inline';
+                fullSpan.style.display = 'none';
+                button.textContent = 'Daha fazla';
+            }
+        };
+
+        // Debounce function
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Event listeners
+        document.getElementById("file").addEventListener("change", async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                document.getElementById("controls").style.display = "none";
+                document.getElementById("info-bar").style.display = "none";
+                document.getElementById("pagination-top").style.display = "none";
+                document.getElementById("pagination-bottom").style.display = "none";
+                document.getElementById("output").innerHTML = "";
+                isFileLoaded = false;
+                return;
+            }
+
+            try {
+                document.getElementById("output").innerHTML = '<div class="loading">📁 Dosya yükleniyor ve JSON\'a dönüştürülüyor...</div>';
+                
+                const buffer = await file.arrayBuffer();
+                await db.registerFileBuffer("myfile.parquet", new Uint8Array(buffer));
+                
+                // Convert entire parquet to JSON
+                document.getElementById("output").innerHTML = '<div class="loading">🔄 Parquet dosyası JSON\'a dönüştürülüyor...</div>';
+                const result = await conn.query(`SELECT * FROM 'myfile.parquet'`);
+                allData = result.toArray();
+                
+                // Reset UI state
+                isFileLoaded = true;
+                searchTerm = '';
+                currentPage = 1;
+                itemsPerPage = parseInt(document.getElementById("limit").value) || 10;
+                document.getElementById("search").value = '';
+                
+                // Show controls
+                document.getElementById("controls").style.display = "flex";
+                
+                // Render everything
+                renderAll();
+                
+                console.log(`✅ ${allData.length} kayıt başarıyla yüklendi`);
+                
+            } catch (error) {
+                console.error('Error loading file:', error);
+                document.getElementById("output").innerHTML = 
+                    `<p style="color: red; text-align: center; padding: 40px;">
+                        ❌ Dosya yüklenirken hata: ${error.message}
+                    </p>`;
+            }
+        });
+
+        document.getElementById("limit").addEventListener("change", (event) => {
+            if (!isFileLoaded) return;
+            
+            itemsPerPage = parseInt(event.target.value) || 10;
+            currentPage = 1;
+            renderTable();
+            renderPagination();
+        });
+
+        const debouncedSearch = debounce((value) => {
+            if (!isFileLoaded) return;
+            searchTerm = value;
+            renderAll();
+        }, 300);
+
+        document.getElementById("search").addEventListener("input", (event) => {
+            debouncedSearch(event.target.value);
+        });
+
+        document.getElementById("reset-search").addEventListener("click", () => {
+            if (!isFileLoaded) return;
+            
+            document.getElementById("search").value = '';
+            searchTerm = '';
+            renderAll();
+        });
+    </script>
 </body>
-</html></div>
+</html>
